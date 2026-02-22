@@ -1,0 +1,244 @@
+{
+  "app_users": [
+    {
+      "id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "email": "admin@mail.com",
+      "password_hash": "$2a$10$fF5uYxNC8gazeOEe.GK/XueYxGJLgcO8VUg95MblEXc99gCPHQ0uW",
+      "created_at": "2026-02-05T17:38:39.450Z"
+    }
+  ],
+  "api_keys": [],
+  "trading_strategies": [
+    {
+      "id": "9c5ef018-decf-4ef1-b3cb-ac0b795c1b2a",
+      "created_at": "2026-02-05T19:24:33.169Z",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "name": "Daily Profit (10 Trades/Day)",
+      "description": "Balanced daily trading strategy optimized for 10 trades per day with consistent profits. Conservative risk with 1:2 R:R ratio.",
+      "strategy_type": "daily_profit",
+      "exchange": "binance",
+      "product": "spot",
+      "environment": "mainnet",
+      "position_size_type": "fixed",
+      "position_size_value": 150,
+      "max_positions": 10,
+      "max_daily_loss": 0.5,
+      "max_drawdown_percent": 5,
+      "max_trades_per_day": 20,
+      "max_consecutive_losses": 1,
+      "tp1_percent": 0.8,
+      "tp1_close_percent": 40,
+      "tp2_percent": 1.5,
+      "tp2_close_percent": 35,
+      "tp3_percent": 2.5,
+      "tp3_close_percent": 25,
+      "use_tp1": true,
+      "use_tp2": true,
+      "use_tp3": true,
+      "stop_loss_percent": 0.6,
+      "use_trailing_stop": true,
+      "trailing_stop_activation": 0.8,
+      "trailing_stop_callback": 0.3,
+      "default_leverage": 7,
+      "allowed_pairs": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "BNBUSDT",
+        "SOLUSDT",
+        "XRPUSDT"
+      ],
+      "strategy_config": {
+        "htf_timeframe": "1h",
+        "ltf_timeframe": "5m",
+        "ema_fast": 9,
+        "ema_slow": 21,
+        "rsi_period": 14,
+        "rsi_overbought": 70,
+        "rsi_oversold": 30,
+        "volume_multiplier": 1.2,
+        "trade_interval_minutes": 144,
+        "min_signal_strength": 0.6
+      },
+      "is_active": true,
+      "updated_at": "2026-02-14T19:37:46.542Z",
+      "signal_mode": "auto",
+      "auto_signal_enabled": true,
+      "auto_signal_indicators": {
+        "ema_short": 12,
+        "ema_long": 26,
+        "rsi_period": 14,
+        "rsi_overbought": 70,
+        "rsi_oversold": 30,
+        "macd_fast": 12,
+        "macd_slow": 26,
+        "macd_signal": 9,
+        "volume_multiplier": 1.5
+      },
+      "auto_signal_interval": 1,
+      "last_signal_at": "2026-02-05T22:38:11.186Z"
+    }
+  ],
+  "webhook_logs": [],
+  "user_roles": [
+    {
+      "id": "2847e24f-1ada-4ef3-8f95-e6221d88b329",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "role": "admin",
+      "created_at": "2026-02-05T17:38:39.450Z"
+    }
+  ],
+  "trades": [],
+  "gas_fee_balances": [
+    {
+      "id": "37518c58-e129-487c-bafe-fac5b70e2945",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "environment": "testnet",
+      "balance": 200,
+      "total_deposited": 200,
+      "total_deducted": 0,
+      "created_at": "2026-02-05T17:38:39.450Z",
+      "updated_at": "2026-02-05T22:01:09.802Z"
+    },
+    {
+      "id": "64ffb2ce-8a24-49a2-9e47-015afb1039e3",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "environment": "mainnet",
+      "balance": 0,
+      "total_deposited": 0,
+      "total_deducted": 0,
+      "created_at": "2026-02-05T17:38:39.450Z",
+      "updated_at": "2026-02-05T17:38:39.450Z"
+    }
+  ],
+  "gas_fee_transactions": [
+    {
+      "id": "932f5ca3-cfa7-40c3-a6e2-410a2047d023",
+      "created_at": "2026-02-05T22:01:10.038Z",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "amount": 200,
+      "transaction_type": "admin_credit",
+      "description": "Admin added gas fee (testnet)",
+      "balance_before": 0,
+      "balance_after": 200,
+      "environment": "testnet"
+    }
+  ],
+  "bot_status": [
+    {
+      "id": "17d06c2f-e171-4d54-bc60-18a97f9070c7",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "is_running": false,
+      "environment": "testnet",
+      "exchange": "binance",
+      "last_trade_at": null,
+      "total_trades": 0,
+      "successful_trades": 0,
+      "failed_trades": 0,
+      "created_at": "2026-02-05T17:38:39.450Z",
+      "updated_at": "2026-02-05T17:38:39.450Z"
+    },
+    {
+      "id": "d12f4e50-4bbc-4907-8126-ff0c8f6d6e0d",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "is_running": false,
+      "environment": "mainnet",
+      "exchange": "binance",
+      "last_trade_at": null,
+      "total_trades": 0,
+      "successful_trades": 0,
+      "failed_trades": 0,
+      "created_at": "2026-02-16T05:03:55.911Z",
+      "updated_at": "2026-02-16T05:03:55.911Z"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "7c47e1a4-a448-47dd-9544-d5af96fd2837",
+      "user_id": "5a402450-9bdf-4903-9158-569081444fd0",
+      "display_name": "Admin",
+      "email": "admin@mail.com",
+      "referral_code": "28433d0636bf6698",
+      "created_at": "2026-02-05T17:38:39.450Z",
+      "updated_at": "2026-02-05T17:38:39.450Z"
+    }
+  ],
+  "pending_deposits": [],
+  "deposit_addresses": [
+    {
+      "id": "9ef16b69-6bb3-42c3-a9ae-c26ebdadba61",
+      "created_at": "2026-02-05T17:58:32.158Z",
+      "network": "BSC",
+      "address": "0x691c7c84f2aa9f6dcb7b1da11f46943f9b4b93f5",
+      "label": "",
+      "created_by": "5a402450-9bdf-4903-9158-569081444fd0",
+      "is_active": true,
+      "updated_at": "2026-02-05T17:58:34.395Z"
+    }
+  ],
+  "app_settings": [
+    {
+      "id": "97db96ba-da9a-405b-8460-093739f23255",
+      "created_at": "2026-02-05T22:08:56.938Z",
+      "key": "maintenance_mode",
+      "bool_value": false,
+      "updated_at": "2026-02-05T22:09:12.045Z"
+    }
+  ],
+  "positions": [],
+  "profit_settlements": [],
+  "referral_commissions": [],
+  "admin_earnings": [
+    {
+      "id": "3dbc802a-554b-4dbb-a3bc-0bd0e9563afc",
+      "source_user_id": "e70b4418-6af6-4930-8e3a-6e772836c44e",
+      "trade_id": "38f5fa90-b9be-4ab6-9910-a5a10dfb4bbc",
+      "gross_profit": 10.31041169,
+      "total_service_fee": 3.093123507,
+      "referral_commissions_paid": 0,
+      "admin_share": 3.093123507,
+      "created_at": "2026-02-05T21:27:01.124Z"
+    },
+    {
+      "id": "ea010afa-0868-4036-9e3b-55e5c864b6d5",
+      "source_user_id": "e70b4418-6af6-4930-8e3a-6e772836c44e",
+      "trade_id": "165c081f-f769-4cd4-9b5d-5bcf31970312",
+      "gross_profit": 0.54615468,
+      "total_service_fee": 0.163846404,
+      "referral_commissions_paid": 0,
+      "admin_share": 0.163846404,
+      "created_at": "2026-02-05T21:27:01.126Z"
+    },
+    {
+      "id": "318238fa-2e52-4952-b016-912ebe063b75",
+      "source_user_id": "e70b4418-6af6-4930-8e3a-6e772836c44e",
+      "trade_id": "74d59003-bf93-4310-955d-389068223581",
+      "gross_profit": 0.192,
+      "total_service_fee": 0.0576,
+      "referral_commissions_paid": 0,
+      "admin_share": 0.0576,
+      "created_at": "2026-02-05T21:27:01.126Z"
+    },
+    {
+      "id": "93328329-daf7-4e72-81d3-96bbf4e05898",
+      "source_user_id": "e70b4418-6af6-4930-8e3a-6e772836c44e",
+      "trade_id": "70aaeaeb-290b-49ac-91da-2fb295ba40f1",
+      "gross_profit": 7.04804004,
+      "total_service_fee": 2.114412012,
+      "referral_commissions_paid": 0,
+      "admin_share": 2.114412012,
+      "created_at": "2026-02-06T03:26:00.889Z"
+    },
+    {
+      "id": "12682142-fdf8-4a55-a035-e03d0f220da0",
+      "source_user_id": "e70b4418-6af6-4930-8e3a-6e772836c44e",
+      "trade_id": "53a110a4-ae10-42a8-b2da-28217433e497",
+      "gross_profit": 8.36,
+      "total_service_fee": 2.5079999999999996,
+      "referral_commissions_paid": 0,
+      "admin_share": 2.5079999999999996,
+      "created_at": "2026-02-06T15:25:00.895Z"
+    }
+  ],
+  "user_settings": [],
+  "account_balances": []
+}
