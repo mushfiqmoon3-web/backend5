@@ -229,9 +229,25 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
           if (product === 'futures') {
             const response = await callBinanceApi('/fapi/v2/positionRisk', apiKey, apiSecret, isTestnet, product);
             result = await response.json();
+            // Debug logging
+            console.log(`[getPositions] Binance Futures - User: ${userId}, Exchange: ${exchange}, Product: ${product}, Environment: ${environment}`);
+            if (Array.isArray(result)) {
+              console.log(`[getPositions] Response type: Array, Length: ${result.length}`);
+              if (result.length > 0 && result[0] && typeof result[0] === 'object' && 'symbol' in result[0]) {
+                const firstPos = result[0] as { symbol?: string; positionAmt?: string };
+                console.log(`[getPositions] Sample position:`, {
+                  symbol: firstPos.symbol,
+                  positionAmt: firstPos.positionAmt,
+                  isZero: parseFloat(firstPos.positionAmt || '0') === 0,
+                });
+              }
+            } else {
+              console.log(`[getPositions] Response type: ${typeof result}`);
+            }
           } else {
             // Spot "open positions" are tracked in app DB from executed bot trades.
-            result = (db.data?.positions || []).filter(
+            const allPositions = db.data?.positions || [];
+            result = allPositions.filter(
               (p) =>
                 p.user_id === userId &&
                 p.exchange === exchange &&
@@ -239,6 +255,17 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
                 (p.product || 'spot') === 'spot' &&
                 p.is_open
             );
+            // Debug logging
+            console.log(`[getPositions] Binance Spot - User: ${userId}, Exchange: ${exchange}, Product: ${product}, Environment: ${environment}`);
+            console.log(`[getPositions] Total positions in DB: ${allPositions.length}, Filtered (open): ${Array.isArray(result) ? result.length : 0}`);
+            if (Array.isArray(result) && result.length > 0 && result[0]) {
+              const firstPos = result[0] as { symbol?: string; size?: number | string; is_open?: boolean };
+              console.log(`[getPositions] Sample position:`, {
+                symbol: firstPos.symbol,
+                size: firstPos.size,
+                is_open: firstPos.is_open,
+              });
+            }
           }
           break;
         }
@@ -273,6 +300,15 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         case 'getAccountInfo': {
           const endpoint = product === 'futures' ? '/fapi/v2/account' : '/api/v3/account';
           const response = await callBinanceApi(endpoint, apiKey, apiSecret, isTestnet, product);
+          result = await response.json();
+          break;
+        }
+        case 'getPrice': {
+          if (!symbol) {
+            return res.status(400).json({ error: 'Symbol required for getPrice' });
+          }
+          const endpoint = product === 'futures' ? '/fapi/v1/ticker/price' : '/api/v3/ticker/price';
+          const response = await callBinanceApi(endpoint, apiKey, apiSecret, isTestnet, product, 'GET', { symbol });
           result = await response.json();
           break;
         }
@@ -483,6 +519,23 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         case 'getAccountInfo': {
           const response = await callBybitApi('/v5/account/info', apiKey, apiSecret, isTestnet);
           result = await response.json();
+          break;
+        }
+        case 'getPrice': {
+          if (!symbol) {
+            return res.status(400).json({ error: 'Symbol required for getPrice' });
+          }
+          const response = await callBybitApi('/v5/market/tickers', apiKey, apiSecret, isTestnet, 'GET', {
+            category: 'spot',
+            symbol,
+          });
+          const tickerData = await response.json();
+          // Extract price from Bybit response
+          if (tickerData.result?.list?.[0]?.lastPrice) {
+            result = { price: tickerData.result.list[0].lastPrice };
+          } else {
+            result = { price: '0' };
+          }
           break;
         }
         case 'closePosition': {
