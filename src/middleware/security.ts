@@ -43,8 +43,7 @@ export const generalRateLimiter = rateLimit({
                       userAgent.startsWith('node/');
     return isHealthCheck || isCronJob;
   },
-  // Trust proxy for Cloudflare tunnel
-  trustProxy: true,
+  // Note: trustProxy is set on Express app, not here
 });
 
 // Stricter rate limiter for auth endpoints
@@ -59,8 +58,7 @@ export const authRateLimiter = rateLimit({
     },
   },
   skipSuccessfulRequests: true, // Don't count successful requests
-  // Trust proxy for Cloudflare tunnel
-  trustProxy: true,
+  // Note: trustProxy is set on Express app, not here
 });
 
 // Strict rate limiter for sensitive operations
