@@ -5,7 +5,7 @@ import { createHmac } from 'node:crypto';
 
 const router = Router();
 const SERVICE_FEE_RATE = 0.3;
-const REFERRAL_RATES = [0.005, 0.003, 0.002];
+const REFERRAL_RATES = [0.05, 0.03, 0.02]; // Level 1: 5%, Level 2: 3%, Level 3: 2%
 
 const decryptValue = (encrypted: string): string => {
   try {
