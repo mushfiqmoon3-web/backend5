@@ -4,7 +4,7 @@ import '../config/env.js';
 import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import type { StringValue } from 'ms';
-import { db, safeWrite } from '../db/index.js';
+import { pool } from '../db/postgres.js';
 import crypto from 'node:crypto';
 import { validate, authSchemas } from '../middleware/validation.js';
 import { authRateLimiter } from '../middleware/security.js';
@@ -38,138 +38,104 @@ const createAccessToken = (authUserId: string, email: string): string => {
 };
 
 const handleRegister = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+  
   try {
-    const { email, password, referralCode } = req.body as {
+   const { email, password, referralCode } = req.body as {
       email?: string;
       password?: string;
       referralCode?: string;
     };
 
-    if (!email || !password) {
+   if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const existing = db.data?.app_users.find((u) => u.email === email.toLowerCase());
-    if (existing) {
+    // Check if user exists
+   const existingResult = await client.query(
+      'SELECT id FROM app_users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+   if (existingResult.rows.length > 0) {
       return res.status(409).json({ error: 'Email already registered' });
     }
-    const passwordHash = await bcrypt.hash(password, 10);
-    const userId = crypto.randomUUID();
-    const now = new Date().toISOString();
 
-    // Ensure all arrays exist
-    db.data ||= {
-      app_users: [],
-      api_keys: [],
-      trading_strategies: [],
-      webhook_logs: [],
-      user_roles: [],
-      trades: [],
-      bot_status: [],
-      profiles: [],
-      positions: [],
-      account_balances: [],
-      gas_fee_balances: [],
-      gas_fee_transactions: [],
-      referral_commissions: [],
-      admin_earnings: [],
-      profit_settlements: [],
-      pending_deposits: [],
-      deposit_addresses: [],
-      user_settings: [],
-      app_settings: [],
-    };
+   const passwordHash = await bcrypt.hash(password, 10);
+   const userId = crypto.randomUUID();
+   const now = new Date().toISOString();
 
-    // Create app_user
-    db.data.app_users.push({
-      id: userId,
-      email: email.toLowerCase(),
-      password_hash: passwordHash,
-      created_at: now,
-    });
-
-    // Create profile
+    // Find referrer by referral code
     let referrerProfileId: string | null = null;
-    if (referralCode) {
-      // Find referrer by referral code
-      const referrer = db.data.profiles.find((p) => p.referral_code?.toLowerCase() === referralCode.toLowerCase());
-      if (referrer) {
-        referrerProfileId = referrer.id;
+   if (referralCode) {
+     const referrerResult = await client.query(
+        'SELECT id FROM profiles WHERE referral_code = $1',
+        [referralCode.toLowerCase()]
+      );
+     if (referrerResult.rows.length > 0) {
+        referrerProfileId = referrerResult.rows[0].id;
       }
     }
 
-    db.data.profiles.push({
-      id: crypto.randomUUID(),
-      user_id: userId,
-      display_name: null,
-      email: email.toLowerCase(),
-      referrer_id: referrerProfileId,
-      referral_code: crypto.randomBytes(8).toString('hex'),
-      created_at: now,
-      updated_at: now,
-    });
+   const newReferralCode = crypto.randomBytes(8).toString('hex');
+   const profileId = crypto.randomUUID();
+   const botStatusTestnetId = crypto.randomUUID();
+   const botStatusMainnetId = crypto.randomUUID();
+   const gasFeeTestnetId = crypto.randomUUID();
+   const gasFeeMainnetId = crypto.randomUUID();
+
+    // Start transaction
+   await client.query('BEGIN');
+
+    // Create app_user
+   await client.query(
+      'INSERT INTO app_users (id, email, password_hash, created_at) VALUES ($1, $2, $3, $4)',
+      [userId, email.toLowerCase(), passwordHash, now]
+    );
+
+    // Create profile
+   await client.query(
+      `INSERT INTO profiles(id, user_id, display_name, email, referrer_id, referral_code, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [profileId, userId, null, email.toLowerCase(), referrerProfileId, newReferralCode, now, now]
+    );
 
     // Create bot_status for both environments
-    db.data.bot_status.push({
-      id: crypto.randomUUID(),
-      user_id: userId,
-      is_running: false,
-      environment: 'testnet',
-      exchange: 'binance',
-      last_trade_at: null,
-      total_trades: 0,
-      successful_trades: 0,
-      failed_trades: 0,
-      created_at: now,
-      updated_at: now,
-    });
-    db.data.bot_status.push({
-      id: crypto.randomUUID(),
-      user_id: userId,
-      is_running: false,
-      environment: 'mainnet',
-      exchange: 'binance',
-      last_trade_at: null,
-      total_trades: 0,
-      successful_trades: 0,
-      failed_trades: 0,
-      created_at: now,
-      updated_at: now,
-    });
+   await client.query(
+      `INSERT INTO bot_status (id, user_id, is_running, environment, exchange, last_trade_at, total_trades, successful_trades, failed_trades, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [botStatusTestnetId, userId, false, 'testnet', 'binance', null, 0, 0, 0, now, now]
+    );
+   await client.query(
+      `INSERT INTO bot_status (id, user_id, is_running, environment, exchange, last_trade_at, total_trades, successful_trades, failed_trades, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [botStatusMainnetId, userId, false, 'mainnet', 'binance', null, 0, 0, 0, now, now]
+    );
 
     // Create gas_fee_balances for both environments
-    db.data.gas_fee_balances.push({
-      id: crypto.randomUUID(),
-      user_id: userId,
-      environment: 'testnet',
-      balance: 0,
-      total_deposited: 0,
-      total_deducted: 0,
-      created_at: now,
-      updated_at: now,
-    });
+   await client.query(
+      `INSERT INTO gas_fee_balances (id, user_id, environment, balance, total_deposited, total_deducted, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [gasFeeTestnetId, userId, 'testnet', 0, 0, 0, now, now]
+    );
+   await client.query(
+      `INSERT INTO gas_fee_balances(id, user_id, environment, balance, total_deposited, total_deducted, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [gasFeeMainnetId, userId, 'mainnet', 0, 0, 0, now, now]
+    );
 
-    db.data.gas_fee_balances.push({
-      id: crypto.randomUUID(),
-      user_id: userId,
-      environment: 'mainnet',
-      balance: 0,
-      total_deposited: 0,
-      total_deducted: 0,
-      created_at: now,
-      updated_at: now,
-    });
+   await client.query('COMMIT');
 
-    await safeWrite();
-
-    const token = createAccessToken(userId, email.toLowerCase());
+   const token = createAccessToken(userId, email.toLowerCase());
     return res.status(201).json({
       token,
       user: { id: userId, email: email.toLowerCase() },
     });
   } catch (error) {
-    logger.error('Register error', { error: error instanceof Error ? error.message : String(error) });
+   await client.query('ROLLBACK');
+   logger.error('Register error', { error: error instanceof Error ? error.message : String(error) });
     throw new CustomError('Internal error', 500, 'INTERNAL_ERROR');
+  } finally {
+    client.release();
   }
 };
 
@@ -181,26 +147,33 @@ router.post('/signup', validate(authSchemas.register), asyncHandler(handleRegist
 
 router.post('/login', validate(authSchemas.login), asyncHandler(async (req, res) => {
   try {
-    const { email, password } = req.body as { email?: string; password?: string };
-    if (!email || !password) {
+   const { email, password } = req.body as { email?: string; password?: string };
+   if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const appUser = db.data?.app_users.find((u) => u.email === email.toLowerCase());
-    if (!appUser) {
+   const result = await pool.query(
+      'SELECT * FROM app_users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+   const appUser = result.rows[0];
+    
+   if (!appUser) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const ok = await bcrypt.compare(password, appUser.password_hash);
-    if (!ok) {
+    
+   const ok = await bcrypt.compare(password, appUser.password_hash);
+   if (!ok) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const token = createAccessToken(appUser.id, appUser.email);
+    
+   const token = createAccessToken(appUser.id, appUser.email);
     return res.json({
       token,
       user: { id: appUser.id, email: appUser.email },
     });
   } catch (error) {
-    logger.error('Login error', { error: error instanceof Error ? error.message : String(error) });
+   logger.error('Login error', { error: error instanceof Error ? error.message : String(error) });
     throw new CustomError('Internal error', 500, 'INTERNAL_ERROR');
   }
 }));
