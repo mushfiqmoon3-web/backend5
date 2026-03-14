@@ -101,8 +101,10 @@ async function handleDbRequest(req: Request, res: Response) {
       const inserted: Record<string, unknown>[] = [];
       
       for (const row of payload) {
-        const keys = Object.keys(row);
-        const values = Object.values(row);
+        // Remove updated_at to avoid conflicts with triggers
+        const { updated_at, ...rowWithoutUpdatedAt } = row;
+        const keys = Object.keys(rowWithoutUpdatedAt);
+        const values = Object.values(rowWithoutUpdatedAt);
         const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
         
         const insertQuery = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING *`;
@@ -119,8 +121,10 @@ async function handleDbRequest(req: Request, res: Response) {
       const upserted: Record<string, unknown>[] = [];
 
       for (const row of payload) {
-        const keys = Object.keys(row);
-        const values = Object.values(row);
+        // Remove updated_at to avoid conflicts with triggers
+        const { updated_at, ...rowWithoutUpdatedAt } = row;
+        const keys = Object.keys(rowWithoutUpdatedAt);
+        const values = Object.values(rowWithoutUpdatedAt);
         const updateKeys = keys.filter(k => !conflictFields.includes(k));
         
         const setClause = updateKeys.map((key, i) => `${key} = EXCLUDED.${key}`).join(', ');
