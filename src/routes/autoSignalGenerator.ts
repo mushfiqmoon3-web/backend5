@@ -589,7 +589,7 @@ router.post('/', async (_req, res) => {
   try {
     // Get all active auto-signal strategies from PostgreSQL
     const strategiesResult = await pool.query(
-      `SELECT * FROM trading_strategies WHERE is_active = true AND auto_signal = true`
+      `SELECT * FROM trading_strategies WHERE is_active = true AND signal_mode = 'auto'`
     );
     const allStrategies = strategiesResult.rows;
     console.log(`📊 Total strategies in database: ${allStrategies.length}`);
