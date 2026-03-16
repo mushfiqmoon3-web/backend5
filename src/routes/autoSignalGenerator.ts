@@ -929,6 +929,47 @@ router.post('/', async (_req, res) => {
           const signal = analyzeSignal(candles, config.auto_signal_indicators, pair);
           console.log(`   Signal result: action=${signal.action}, confidence=${(signal.confidence * 100).toFixed(1)}%, price=${signal.price}`);
 
+          // Save signal to database (whether executed or not)
+          const signalId = crypto.randomUUID();
+          const signalAction = signal.action; // 'buy', 'sell', or 'none'
+          await pool.query(
+            `INSERT INTO signals (
+              id, user_id, strategy_id, signal_source, symbol, action, price, confidence,
+              rsi_value, ema_short, ema_long, macd_value, indicators,
+              gemini_validated, gemini_decision, gemini_confidence, gemini_reason,
+              executed, execution_error, order_id, trade_id,
+              exchange, product, environment, triggered_by, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
+            [
+              signalId,
+              config.user_id,
+              config.id,
+              'auto', // signal_source
+              pair,
+              signalAction,
+              signal.price,
+              signal.confidence,
+              signal.rsi_value || null,
+              null, // ema_short (not available in current structure)
+              null, // ema_long (not available in current structure)
+              null, // macd_value (not available in current structure)
+              JSON.stringify(signal.indicators),
+              false, // gemini_validated (will update later if Gemini is used)
+              null, // gemini_decision
+              null, // gemini_confidence
+              null, // gemini_reason
+              false, // executed (will update to true if trade executes)
+              null, // execution_error
+              null, // order_id (will update if order placed)
+              null, // trade_id (will update if trade recorded)
+              config.exchange,
+              config.product,
+              config.environment,
+              'auto_strategy',
+              new Date().toISOString()
+            ]
+          );
+
           if (signal.action === 'none') {
             console.log(`   ⏭️  No signal for ${pair} (action: none)`);
             continue;
