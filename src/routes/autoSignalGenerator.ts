@@ -389,7 +389,9 @@ const getGeminiFilterDecision = async (
 ): Promise<GeminiDecision> => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return { ok: false, execute: false, confidence: 0, reason: 'missing_gemini_api_key' };
+    // No API key - skip Gemini validation, let engine decide
+    console.log(`[Gemini] API key not configured - skipping validation for ${signal.symbol}`);
+    return { ok: false, execute: false, confidence: 0, reason: 'gemini_not_configured' };
   }
 
   const prompt = [
