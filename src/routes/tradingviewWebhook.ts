@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { db, safeWrite, type TradingStrategy, type ApiKey, type Trade, type Position, type WebhookLog } from '../db/index.js';
+import { pool } from '../db/postgres.js';
+import { safeWrite, type TradingStrategy, type ApiKey, type Trade, type Position, type WebhookLog } from '../db/index.js';
 import { createHmac } from 'node:crypto';
 
 const router = Router();
@@ -619,17 +620,21 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Missing symbol or action' });
     }
 
-    await db.read();
-
-    // Find strategy by strategy_id or webhook_secret
+    // Find strategy by strategy_id or webhook_secret using PostgreSQL
     let strategy: StrategyConfig | undefined;
     
     if (alert.strategy_id) {
-      strategy = db.data?.trading_strategies.find((s) => s.id === alert.strategy_id) as StrategyConfig | undefined;
+      const strategyResult = await pool.query(
+        'SELECT * FROM trading_strategies WHERE id = $1',
+        [alert.strategy_id]
+      );
+      strategy = strategyResult.rows[0] as StrategyConfig | undefined;
     } else if (alert.secret) {
-      strategy = db.data?.trading_strategies.find(
-        (s) => (s as StrategyConfig).webhook_secret === alert.secret
-      ) as StrategyConfig | undefined;
+      const strategyResult = await pool.query(
+        'SELECT * FROM trading_strategies WHERE webhook_secret = $1',
+        [alert.secret]
+      );
+      strategy = strategyResult.rows[0] as StrategyConfig | undefined;
     }
 
     if (!strategy || !strategy.is_active) {
@@ -641,15 +646,13 @@ router.post('/', async (req, res) => {
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
 
-    // Get API keys
-    const apiKeys = db.data?.api_keys.find(
-      (k) =>
-        k.user_id === strategy.user_id &&
-        k.exchange === strategy.exchange &&
-        k.product === strategy.product &&
-        k.environment === strategy.environment &&
-        k.is_active
-    ) as ApiKey | undefined;
+    // Get API keys from PostgreSQL
+    const apiKeysResult = await pool.query(
+      `SELECT * FROM api_keys 
+       WHERE user_id = $1 AND exchange = $2 AND product = $3 AND environment = $4 AND is_active = true`,
+      [strategy.user_id, strategy.exchange, strategy.product, strategy.environment]
+    );
+    const apiKeys = apiKeysResult.rows[0] as ApiKey | undefined;
 
     if (!apiKeys) {
       return res.status(400).json({ error: 'API keys not configured' });
@@ -666,63 +669,93 @@ router.post('/', async (req, res) => {
     const now = new Date();
 
     if (alert.action !== 'close' && !isWithinTradingSession(strategyConfig, now)) {
-      db.data?.webhook_logs.push({
-        id: crypto.randomUUID(),
-        user_id: strategy.user_id,
-        strategy_id: strategy.id,
-        payload: alert as unknown as Record<string, unknown>,
-        status: 'rejected',
-        error_message: 'Outside trading session',
-        created_at: new Date().toISOString(),
-      });
-      await safeWrite();
+      await pool.query(
+        `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          crypto.randomUUID(),
+          strategy.user_id,
+          strategy.id,
+          strategy.webhook_secret || '',
+          JSON.stringify(alert),
+          null,
+          null,
+          'rejected',
+          'Outside trading session',
+          new Date().toISOString()
+        ]
+      );
       return res.status(200).json({ success: false, error: 'Outside trading session' });
     }
 
     if (alert.action !== 'close') {
       const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-      const trades = db.data?.trades || [];
-      const dailyTrades = trades.filter(
-        (t) =>
-          t.user_id === strategy.user_id &&
-          t.triggered_by === 'tradingview_webhook' &&
-          new Date(t.created_at) >= dayStart
+      
+      // Get daily trades from PostgreSQL
+      const tradesResult = await pool.query(
+        `SELECT * FROM trades 
+         WHERE user_id = $1 AND triggered_by = 'tradingview_webhook' AND created_at >= $2`,
+        [strategy.user_id, dayStart.toISOString()]
       );
+      const dailyTrades = tradesResult.rows;
+      
       if (strategy.max_trades_per_day && dailyTrades.length >= strategy.max_trades_per_day) {
-        db.data?.webhook_logs.push({
-          id: crypto.randomUUID(),
-          user_id: strategy.user_id,
-          strategy_id: strategy.id,
-          payload: alert as unknown as Record<string, unknown>,
-          status: 'rejected',
-          error_message: 'Max trades per day reached',
-          created_at: new Date().toISOString(),
-        });
-        await safeWrite();
+        await pool.query(
+          `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            crypto.randomUUID(),
+            strategy.user_id,
+            strategy.id,
+            strategy.webhook_secret || '',
+            JSON.stringify(alert),
+            null,
+            null,
+            'rejected',
+            'Max trades per day reached',
+            new Date().toISOString()
+          ]
+        );
         return res.status(200).json({ success: false, error: 'Max trades per day reached' });
       }
 
-      const dailyPnl = trades
-        .filter((t) => t.user_id === strategy.user_id && new Date(t.created_at) >= dayStart)
-        .reduce((sum, t) => sum + Number(t.realized_pnl || 0), 0);
+      // Calculate daily PnL from PostgreSQL
+      const pnlResult = await pool.query(
+        `SELECT COALESCE(SUM(realized_pnl), 0) as total_pnl 
+         FROM trades 
+         WHERE user_id = $1 AND created_at >= $2`,
+        [strategy.user_id, dayStart.toISOString()]
+      );
+      const dailyPnl = parseFloat(pnlResult.rows[0].total_pnl) || 0;
+      
       if (strategy.max_daily_loss && dailyPnl <= -strategy.max_daily_loss) {
-        db.data?.webhook_logs.push({
-          id: crypto.randomUUID(),
-          user_id: strategy.user_id,
-          strategy_id: strategy.id,
-          payload: alert as unknown as Record<string, unknown>,
-          status: 'rejected',
-          error_message: 'Max daily loss reached',
-          created_at: new Date().toISOString(),
-        });
-        await safeWrite();
+        await pool.query(
+          `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            crypto.randomUUID(),
+            strategy.user_id,
+            strategy.id,
+            strategy.webhook_secret || '',
+            JSON.stringify(alert),
+            null,
+            null,
+            'rejected',
+            'Max daily loss reached',
+            new Date().toISOString()
+          ]
+        );
         return res.status(200).json({ success: false, error: 'Max daily loss reached' });
       }
 
       if (strategy.max_consecutive_losses && strategy.max_consecutive_losses > 0) {
-        const recent = trades
-          .filter((t) => t.user_id === strategy.user_id && t.realized_pnl !== undefined)
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        const recentResult = await pool.query(
+          `SELECT * FROM trades 
+           WHERE user_id = $1 AND realized_pnl IS NOT NULL 
+           ORDER BY created_at DESC`,
+          [strategy.user_id]
+        );
+        const recent = recentResult.rows;
         let consecutiveLosses = 0;
         for (const trade of recent) {
           if ((trade.realized_pnl || 0) < 0) {
@@ -732,16 +765,22 @@ router.post('/', async (req, res) => {
           }
         }
         if (consecutiveLosses >= strategy.max_consecutive_losses) {
-          db.data?.webhook_logs.push({
-            id: crypto.randomUUID(),
-            user_id: strategy.user_id,
-            strategy_id: strategy.id,
-          payload: alert as unknown as Record<string, unknown>,
-            status: 'rejected',
-            error_message: 'Max consecutive losses reached',
-            created_at: new Date().toISOString(),
-          });
-          await safeWrite();
+          await pool.query(
+            `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              crypto.randomUUID(),
+              strategy.user_id,
+              strategy.id,
+              strategy.webhook_secret || '',
+              JSON.stringify(alert),
+              null,
+              null,
+              'rejected',
+              'Max consecutive losses reached',
+              new Date().toISOString()
+            ]
+          );
           return res.status(200).json({ success: false, error: 'Max consecutive losses reached' });
         }
       }
@@ -755,29 +794,41 @@ router.post('/', async (req, res) => {
           const spreadPct = ((book.ask - book.bid) / mid) * 100;
           const slippagePct = alert.price ? Math.abs(alert.price - mid) / mid * 100 : 0;
           if (maxSpreadPercent > 0 && spreadPct > maxSpreadPercent) {
-            db.data?.webhook_logs.push({
-              id: crypto.randomUUID(),
-              user_id: strategy.user_id,
-              strategy_id: strategy.id,
-            payload: alert as unknown as Record<string, unknown>,
-              status: 'rejected',
-              error_message: 'Spread too high',
-              created_at: new Date().toISOString(),
-            });
-            await safeWrite();
+            await pool.query(
+              `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+              [
+                crypto.randomUUID(),
+                strategy.user_id,
+                strategy.id,
+                strategy.webhook_secret || '',
+                JSON.stringify(alert),
+                null,
+                null,
+                'rejected',
+                'Spread too high',
+                new Date().toISOString()
+              ]
+            );
             return res.status(200).json({ success: false, error: 'Spread too high' });
           }
           if (maxSlippagePercent > 0 && slippagePct > maxSlippagePercent) {
-            db.data?.webhook_logs.push({
-              id: crypto.randomUUID(),
-              user_id: strategy.user_id,
-              strategy_id: strategy.id,
-            payload: alert as unknown as Record<string, unknown>,
-              status: 'rejected',
-              error_message: 'Slippage too high',
-              created_at: new Date().toISOString(),
-            });
-            await safeWrite();
+            await pool.query(
+              `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+              [
+                crypto.randomUUID(),
+                strategy.user_id,
+                strategy.id,
+                strategy.webhook_secret || '',
+                JSON.stringify(alert),
+                null,
+                null,
+                'rejected',
+                'Slippage too high',
+                new Date().toISOString()
+              ]
+            );
             return res.status(200).json({ success: false, error: 'Slippage too high' });
           }
         }
@@ -786,13 +837,13 @@ router.post('/', async (req, res) => {
 
     // Handle close action
     if (alert.action === 'close') {
-      // Find and close position
-      const position = db.data?.positions.find(
-        (p) =>
-          p.user_id === strategy.user_id &&
-          p.symbol === alert.symbol &&
-          p.is_open
+      // Find open position in PostgreSQL
+      const positionResult = await pool.query(
+        `SELECT * FROM positions 
+         WHERE user_id = $1 AND symbol = $2 AND is_open = true`,
+        [strategy.user_id, alert.symbol]
       );
+      const position = positionResult.rows[0];
 
       if (!position) {
         return res.json({ success: true, message: 'No position to close' });
@@ -800,17 +851,20 @@ router.post('/', async (req, res) => {
 
       // Close position via exchange API (simplified - would need full implementation)
       // For now, just mark as closed in database
-      position.is_open = false;
-      position.updated_at = new Date().toISOString();
-      await safeWrite();
+      await pool.query(
+        `UPDATE positions SET is_open = false, updated_at = $1 WHERE id = $2`,
+        [new Date().toISOString(), position.id]
+      );
 
       return res.json({ success: true, message: 'Position closed' });
     }
 
-    // Check max positions
-    const positionCount = db.data?.positions.filter(
-      (p) => p.user_id === strategy.user_id && p.is_open
-    ).length;
+    // Check max positions from PostgreSQL
+    const positionCountResult = await pool.query(
+      `SELECT COUNT(*) as count FROM positions WHERE user_id = $1 AND is_open = true`,
+      [strategy.user_id]
+    );
+    const positionCount = parseInt(positionCountResult.rows[0].count) || 0;
 
     if (positionCount >= strategy.max_positions) {
       return res.status(400).json({ error: 'Max positions reached' });
@@ -820,68 +874,81 @@ router.post('/', async (req, res) => {
     const execResult = await executeTrade(strategy, alert, apiKey, apiSecret);
 
     if (execResult.success && execResult.orderId) {
-      // Record trade
+      // Record trade in PostgreSQL
       const tradeId = crypto.randomUUID();
-      const trade: Trade = {
-        id: tradeId,
-        user_id: strategy.user_id,
-        exchange: strategy.exchange,
-        product: strategy.product,
-        environment: strategy.environment,
-        symbol: alert.symbol,
-        side: alert.action,
-        order_type: 'market',
-        price: alert.price || 0,
-        quantity: alert.quantity || 0,
-        status: 'filled',
-        order_id: execResult.orderId,
-        triggered_by: 'tradingview_webhook',
-        created_at: new Date().toISOString(),
-      };
+      await pool.query(
+        `INSERT INTO trades (id, user_id, exchange, product, environment, symbol, side, order_type, price, quantity, status, order_id, triggered_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          tradeId,
+          strategy.user_id,
+          strategy.exchange,
+          strategy.product,
+          strategy.environment,
+          alert.symbol,
+          alert.action,
+          'market',
+          alert.price || 0,
+          alert.quantity || 0,
+          'filled',
+          execResult.orderId,
+          'tradingview_webhook',
+          new Date().toISOString()
+        ]
+      );
 
-      db.data?.trades.push(trade);
-
-      // Record position
+      // Record position in PostgreSQL
       const positionId = crypto.randomUUID();
-      db.data?.positions.push({
-        id: positionId,
-        user_id: strategy.user_id,
-        exchange: strategy.exchange,
-        product: strategy.product,
-        environment: strategy.environment as 'testnet' | 'mainnet',
-        symbol: alert.symbol,
-        side: alert.action === 'buy' ? 'long' : 'short',
-        size: alert.quantity || 0,
-        entry_price: alert.price || 0,
-        leverage: alert.leverage || strategy.default_leverage,
-        is_open: true,
-        unrealized_pnl: 0,
-        stop_loss:
-          alert.action === 'buy'
-            ? (alert.price || 0) * (1 - strategy.stop_loss_percent / 100)
-            : (alert.price || 0) * (1 + strategy.stop_loss_percent / 100),
-        take_profit: strategy.use_tp1
-          ? alert.action === 'buy'
-            ? (alert.price || 0) * (1 + strategy.tp1_percent / 100)
-            : (alert.price || 0) * (1 - strategy.tp1_percent / 100)
-          : null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+      const slPrice = alert.action === 'buy'
+        ? (alert.price || 0) * (1 - strategy.stop_loss_percent / 100)
+        : (alert.price || 0) * (1 + strategy.stop_loss_percent / 100);
+      const tpPrice = strategy.use_tp1
+        ? alert.action === 'buy'
+          ? (alert.price || 0) * (1 + strategy.tp1_percent / 100)
+          : (alert.price || 0) * (1 - strategy.tp1_percent / 100)
+        : null;
 
-      // Log webhook
+      await pool.query(
+        `INSERT INTO positions (id, user_id, exchange, product, environment, symbol, side, size, entry_price, leverage, is_open, unrealized_pnl, stop_loss, take_profit, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [
+          positionId,
+          strategy.user_id,
+          strategy.exchange,
+          strategy.product,
+          strategy.environment,
+          alert.symbol,
+          alert.action === 'buy' ? 'long' : 'short',
+          alert.quantity || 0,
+          alert.price || 0,
+          alert.leverage || strategy.default_leverage,
+          true,
+          0,
+          slPrice,
+          tpPrice,
+          new Date().toISOString(),
+          new Date().toISOString()
+        ]
+      );
+
+      // Log webhook in PostgreSQL
       const webhookLogId = crypto.randomUUID();
-      db.data?.webhook_logs.push({
-        id: webhookLogId,
-        user_id: strategy.user_id,
-        strategy_id: strategy.id,
-        payload: alert as unknown as Record<string, unknown>,
-        status: 'executed',
-        error_message: null,
-        created_at: new Date().toISOString(),
-      });
-
-      await safeWrite();
+      await pool.query(
+        `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          webhookLogId,
+          strategy.user_id,
+          strategy.id,
+          strategy.webhook_secret || '',
+          JSON.stringify(alert),
+          null,
+          null,
+          'executed',
+          null,
+          new Date().toISOString()
+        ]
+      );
 
       return res.json({
         success: true,
@@ -890,18 +957,24 @@ router.post('/', async (req, res) => {
         message: 'Trade executed successfully',
       });
     } else {
-      // Log failed webhook
+      // Log failed webhook in PostgreSQL
       const webhookLogId = crypto.randomUUID();
-      db.data?.webhook_logs.push({
-        id: webhookLogId,
-        user_id: strategy.user_id,
-        strategy_id: strategy.id,
-        payload: alert as unknown as Record<string, unknown>,
-        status: 'failed',
-        error_message: execResult.error || 'Unknown error',
-        created_at: new Date().toISOString(),
-      });
-      await safeWrite();
+      await pool.query(
+        `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          webhookLogId,
+          strategy.user_id,
+          strategy.id,
+          strategy.webhook_secret || '',
+          JSON.stringify(alert),
+          null,
+          null,
+          'failed',
+          execResult.error || 'Unknown error',
+          new Date().toISOString()
+        ]
+      );
 
       return res.status(500).json({
         success: false,
