@@ -1109,11 +1109,12 @@ router.post('/', async (_req, res) => {
               if (signal.action === 'buy' || signal.action === 'sell') {
                 const webhookLogId = crypto.randomUUID();
                 await pool.query(
-                  `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                  `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, payload, status, error_message, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
                   [webhookLogId, config.user_id, config.id, 'auto_signal', '{}',
                    JSON.stringify(signal),
                    JSON.stringify(geminiDecision || { execute: false }),
+                   '{}',  // payload
                    'filtered', skipReason || 'Signal was filtered', new Date().toISOString()]
                 );
               }
@@ -1772,11 +1773,12 @@ router.post('/', async (_req, res) => {
               // Log webhook to PostgreSQL
               const webhookLogId = crypto.randomUUID();
               await pool.query(
-                `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, payload, status, error_message, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
                 [webhookLogId, config.user_id, config.id, 'auto_signal', '{}', 
                  JSON.stringify(signal), 
                  JSON.stringify(geminiDecision || { execute: false }),
+                 '{}',  // payload
                  'executed', null, new Date().toISOString()]
               );
 
@@ -1800,11 +1802,12 @@ router.post('/', async (_req, res) => {
               console.log(`❌ ${pair}: Trade EXECUTION FAILED - orderSuccess: ${orderSuccess}, orderId: ${orderId || 'missing'}, error: ${executionError || 'unknown'}`);
               const webhookLogId = crypto.randomUUID();
               await pool.query(
-                `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, payload, status, error_message, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
                 [webhookLogId, config.user_id, config.id, 'auto_signal', '{}',
                  JSON.stringify(signal),
                  JSON.stringify(geminiDecision || { execute: false }),
+                 '{}',  // payload
                  'failed', executionError || 'Trade execution failed', new Date().toISOString()]
               );
 
@@ -1826,11 +1829,12 @@ router.post('/', async (_req, res) => {
             if (signal.action === 'buy' || signal.action === 'sell') {
               const webhookLogId = crypto.randomUUID();
               await pool.query(
-                `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, status, error_message, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, payload, status, error_message, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
                 [webhookLogId, config.user_id, config.id, 'auto_signal', '{}',
                  JSON.stringify(signal),
                  JSON.stringify(geminiDecision || { execute: false }),
+                 '{}',  // payload
                  'filtered', skipReason || 'Signal filtered', new Date().toISOString()]
               );
             }
