@@ -58,8 +58,8 @@ function analyzeMarketConditions(candles: Candle[]): MarketConditions {
   // Trend strength: How consistent is the price movement?
   const trendStrength = Math.abs(priceChange20) + Math.abs(priceChange50) / 2;
   
-  // Market is trending if price moved > 1% in 20 candles and trend is consistent
-  const isTrending = Math.abs(priceChange20) > 1.0 && Math.sign(priceChange20) === Math.sign(priceChange50);
+  // Market is trending if price moved > 0.5% in 20 candles and trend is consistent (ADJUSTED for more signals)
+  const isTrending = Math.abs(priceChange20) > 0.5 && Math.sign(priceChange20) === Math.sign(priceChange50);
   
   return {
     isTrending,
@@ -183,13 +183,18 @@ export function analyzeSignal(candles: Candle[], indicators: StrategyIndicators,
     volume_confirmed,
   ].filter(Boolean).length;
   
-  // Need at least 3 confirmations (75%) for higher quality signals
-  // This ensures 70-80% profit possibility by filtering weak signals
-  // Only trade when 3/4 indicators align for strong confirmation
-  if (bullishCount >= 3) {
+  // Debug logging for signal analysis
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[signalAnalysis] ${symbol} indicator counts: bullish=${bullishCount}, bearish=${bearishCount}`);
+    console.log(`[signalAnalysis] ${symbol} market conditions: trending=${marketConditions.isTrending}, volatility=${marketConditions.volatility.toFixed(2)}%`);
+  }
+  
+  // Need at least 2 confirmations (50%) for more frequent signals (ADJUSTED from 3)
+  // This allows more signals while still requiring multiple confirmations
+  if (bullishCount >= 2) {
     action = 'buy';
     confidence = bullishCount / 4;
-  } else if (bearishCount >= 3) {
+  } else if (bearishCount >= 2) {
     action = 'sell';
     confidence = bearishCount / 4;
   }
@@ -204,9 +209,9 @@ export function analyzeSignal(candles: Candle[], indicators: StrategyIndicators,
     }
   }
   
-  // OPTIMIZED: Volatility filter - Skip extremely volatile markets
-  // High volatility (>5%) increases risk of false signals
-  if (action !== 'none' && marketConditions.volatility > 5.0) {
+  // OPTIMIZED: Volatility filter - Skip extremely volatile markets (ADJUSTED threshold to 8%)
+  // High volatility (>8%) increases risk of false signals
+  if (action !== 'none' && marketConditions.volatility > 8.0) {
     // Require all 4 indicators in high volatility
     if (bullishCount < 4 && bearishCount < 4) {
       action = 'none';
