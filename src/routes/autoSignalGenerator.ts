@@ -399,7 +399,7 @@ const getGeminiFilterDecision = async (
   if (!apiKey) {
     // No API key - skip Gemini validation, let engine decide
     console.log(`[Gemini] API key not configured - skipping validation for ${signal.symbol}`);
-    return { ok: false, execute: false, confidence: 0, reason: 'gemini_not_configured' };
+    return { ok: true, execute: true, confidence: signal.confidence, reason: 'gemini_not_configured_skip' };
   }
 
   const prompt = [
@@ -430,6 +430,7 @@ const getGeminiFilterDecision = async (
     );
 
     if (!response.ok) {
+      console.log(`[Gemini] HTTP error ${response.status} for ${signal.symbol} - will use engine signal`);
       return { ok: false, execute: false, confidence: 0, reason: `gemini_http_${response.status}` };
     }
 
@@ -441,6 +442,7 @@ const getGeminiFilterDecision = async (
     const jsonText = extractJsonFromText(text);
 
     if (!jsonText) {
+      console.log(`[Gemini] Invalid JSON response for ${signal.symbol} - will use engine signal`);
       return { ok: false, execute: false, confidence: 0, reason: 'gemini_invalid_json', raw: text };
     }
 
@@ -456,6 +458,7 @@ const getGeminiFilterDecision = async (
       raw: jsonText,
     };
   } catch (error) {
+    console.log(`[Gemini] Error for ${signal.symbol}: ${(error as Error).message} - will use engine signal`);
     return { ok: false, execute: false, confidence: 0, reason: (error as Error).message };
   }
 };
@@ -1017,7 +1020,12 @@ router.post('/', async (_req, res) => {
             console.log(`❌ ${pair}: Engine confidence ${(signal.confidence * 100).toFixed(1)}% < threshold ${(minConfidence * 100).toFixed(1)}%`);
           } else {
             const decision = await getGeminiFilterDecision(signal, config.auto_signal_indicators);
-            if (decision.ok) {
+            
+            // Check if Gemini API key is configured (reason contains 'skip' means it was skipped due to no API key)
+            const geminiConfigured = !decision.reason?.includes('gemini_not_configured_skip');
+            
+            if (geminiConfigured && decision.ok) {
+              // Gemini is configured and returned a decision
               geminiDecision = decision;
               console.log(`🤖 ${pair}: Gemini decision - execute: ${decision.execute}, confidence: ${(decision.confidence * 100).toFixed(1)}%, reason: ${decision.reason}`);
               if (decision.execute && decision.confidence >= minConfidence) {
@@ -1026,11 +1034,15 @@ router.post('/', async (_req, res) => {
                 skipReason = decision.reason || 'Gemini rejected signal';
                 console.log(`❌ ${pair}: Gemini REJECTED - ${skipReason}`);
               }
+            } else if (!geminiConfigured) {
+              // Gemini API key not configured - use engine signal directly
+              shouldExecute = true;
+              console.log(`✅ ${pair}: Gemini not configured - using engine signal (confidence: ${(signal.confidence * 100).toFixed(1)}%)`);
             } else {
-              // Gemini unavailable -> fallback to engine signal
+              // Gemini configured but unavailable/error - fallback to engine signal
               shouldExecute = true;
               skipReason = `Gemini unavailable: ${decision.reason || 'unknown_error'}`;
-              console.log(`⚠️ ${pair}: Gemini unavailable, using engine signal only`);
+              console.log(`⚠️ ${pair}: Gemini unavailable (${skipReason}), using engine signal only`);
             }
           }
 
