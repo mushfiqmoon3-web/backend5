@@ -7,7 +7,7 @@ import { createHmac } from 'node:crypto';
 import { DEFAULT_TRADING_PAIRS } from '../lib/tradingPairs.js';
 
 const router = Router();
-const MIN_SIGNAL_CONFIDENCE = 0.8;
+const MIN_SIGNAL_CONFIDENCE = 0.70; // Minimum 70% confidence for signal generation
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 const MIN_NOTIONAL_BUFFER = 1.02;
 
@@ -348,6 +348,14 @@ interface StrategyConfig {
   last_signal_at?: string;
   created_at?: string;
   updated_at?: string;
+  
+  // DCA Configuration
+  dca_enabled?: boolean;
+  dca_max_levels?: number;
+  dca_price_drop_percent?: number;
+  dca_position_multiplier?: number;
+  dca_total_capital_percent?: number;
+  
   [key: string]: any; // Allow additional dynamic properties
 }
 
@@ -1105,7 +1113,7 @@ router.post('/', async (_req, res) => {
             }
 
             if (!shouldExecute) {
-              console.log(`❌ ${pair}: Signal FILTERED - shouldExecute: false, skipReason: ${skipReason}`);
+              console.log(`❌ ${pair}: 🚫 SIGNAL FILTERED - Confidence: ${(signal.confidence * 100).toFixed(1)}%, Reason: ${skipReason}`);
               if (signal.action === 'buy' || signal.action === 'sell') {
                 const webhookLogId = crypto.randomUUID();
                 await pool.query(
@@ -1133,8 +1141,8 @@ router.post('/', async (_req, res) => {
               continue;
             }
 
-            console.log(`✅ ${pair}: Signal approved for execution - action: ${signal.action}, price: ${signal.price}, confidence: ${(signal.confidence * 100).toFixed(1)}%`);
-            console.log(`   📍 Price source: Last candle close price from market data (${config.exchange} ${config.product})`);
+            console.log(`✅ ${pair}: 🎯 SIGNAL APPROVED - Action: ${signal.action}, Price: ${signal.price}, Confidence: ${(signal.confidence * 100).toFixed(1)}%, Strategy: ${config.name}`);
+            console.log(`   📍 Price source: Last candle close (${config.exchange} ${config.product})`);
             
             // Get current market price from order book for better execution
             let executionPrice = signal.price;
@@ -1153,8 +1161,10 @@ router.post('/', async (_req, res) => {
             const leverage = config.default_leverage;
             const price = executionPrice; // Use order book price if available, otherwise signal price
 
-            // Calculate position size (balance-aware)
+            // Calculate position size (balance-aware) with auto-adjustment for minimum requirements
             let quantity = 0.001;
+            let positionValueUSDT = 0;
+            
             if (riskPercent > 0 && config.stop_loss_percent > 0) {
               const { total: balance } = await getAccountBalance(
                 config.exchange,
@@ -1166,9 +1176,13 @@ router.post('/', async (_req, res) => {
               const riskAmount = balance * (riskPercent / 100);
               const stopDistance = price * (config.stop_loss_percent / 100);
               quantity = stopDistance > 0 ? riskAmount / stopDistance : quantity;
+              positionValueUSDT = quantity * price;
             } else if (config.position_size_type === 'fixed') {
-              quantity = config.position_size_value / price;
+              // Fixed USD amount
+              positionValueUSDT = config.position_size_value;
+              quantity = positionValueUSDT / price;
             } else {
+              // Percentage of balance
               const { total: balance } = await getAccountBalance(
                 config.exchange,
                 config.product,
@@ -1176,15 +1190,17 @@ router.post('/', async (_req, res) => {
                 apiKey,
                 apiSecret
               );
-              const positionValue = balance * (config.position_size_value / 100);
-              quantity = positionValue / price;
+              positionValueUSDT = balance * (config.position_size_value / 100);
+              quantity = positionValueUSDT / price;
             }
-            const roundedQty = Math.floor(quantity * 1000) / 1000;
-
+            
+            console.log(`📊 ${pair}: Initial position calculation - Value: $${positionValueUSDT.toFixed(2)}, Quantity: ${quantity}, Price: $${price}`);
+            
             let orderId: string | undefined;
             let orderSuccess = false;
             let executionError: string | null = null;
             let orderQtyDecimals: number | null = null;
+            let roundedQty = quantity; // Will be updated after symbol info retrieval
 
             if (config.exchange === 'binance' && config.product === 'futures') {
               const positionSide = (strategyConfig.position_side as string | undefined) || 'BOTH';
@@ -1255,7 +1271,14 @@ router.post('/', async (_req, res) => {
                 const orderData = orderResult.data as { orderId: number };
                 orderId = orderData.orderId.toString();
                 orderSuccess = true;
-                console.log(`✅ ${pair}: Binance order SUCCESS - orderId: ${orderId}, quantity: ${quantity}`);
+                console.log(`✅ ${pair}: 🎉 EXECUTION SUCCESS - OrderId: ${orderId}, Quantity: ${quantity}, Confidence: ${(signal.confidence * 100).toFixed(1)}%`);
+
+                // DCA: Setup Dollar Cost Averaging levels if enabled
+                if (config.dca_enabled && signal.action === 'buy') {
+                  console.log(`📊 ${pair}: DCA enabled - Setting up ${config.dca_max_levels || 3} levels`);
+                  const { setupDCALevels } = await import('../lib/dca.js');
+                  await setupDCALevels(config, pair, price, roundedQty);
+                }
 
                 // Place SL/TP orders
                 const tpSlErrors: string[] = [];
@@ -1342,7 +1365,7 @@ router.post('/', async (_req, res) => {
               }
               if (!orderResult.success) {
                 executionError = orderResult.error || 'Binance order failed';
-                console.log(`❌ ${pair}: Binance order FAILED - ${executionError}`);
+                console.log(`❌ ${pair}: 💥 EXECUTION FAILED - Confidence: ${(signal.confidence * 100).toFixed(1)}%, Error: ${executionError}`);
               }
             } else if (config.exchange === 'binance' && config.product === 'spot') {
               // Binance Spot order execution
@@ -1361,27 +1384,43 @@ router.post('/', async (_req, res) => {
               // Get symbol info to check minimum notional and quantity requirements
               const symbolInfo = await getBinanceSymbolInfo(pair, config.product, isTestnet);
               
-              // Validate minimum notional before attempting order
+              // AUTO-ADJUST: Validate and adjust position size to meet minimum requirements
               if (symbolInfo) {
                 const minNotionalTarget = symbolInfo.minNotional * MIN_NOTIONAL_BUFFER;
                 const orderValue = quantity * price;
+                
+                console.log(`🔍 ${pair}: Symbol requirements - MinNotional: $${symbolInfo.minNotional}, MinQty: ${symbolInfo.minQty}, StepSize: ${symbolInfo.stepSize}`);
+                console.log(`💰 ${pair}: Current order value: $${orderValue.toFixed(2)}, Required: $${minNotionalTarget.toFixed(2)}`);
+                
+                // Auto-adjust quantity to meet minimum notional
                 if (orderValue < minNotionalTarget) {
-                  // Increase quantity to meet minimum notional
                   const requiredQty = Math.ceil((minNotionalTarget / price) / symbolInfo.stepSize) * symbolInfo.stepSize;
-                  if (requiredQty > quantity) {
-                    quantity = requiredQty;
-                    console.log(`⚠️ ${pair}: Quantity adjusted to meet minimum notional: ${quantity} (value: ${(quantity * price).toFixed(2)} USDT)`);
-                  }
+                  console.log(`⚠️ ${pair}: Order value $${orderValue.toFixed(2)} below minimum $${minNotionalTarget.toFixed(2)}`);
+                  console.log(`🔄 ${pair}: Auto-adjusting quantity from ${quantity} to ${requiredQty} to meet minimum notional`);
+                  quantity = requiredQty;
+                  roundedQty = quantity;
+                  console.log(`✅ ${pair}: Quantity adjusted to ${quantity} (new value: ${(quantity * price).toFixed(2)} USDT)`);
                 }
                 
-                // Ensure quantity meets minimum quantity requirement
+                // Auto-adjust to meet minimum quantity requirement
                 if (quantity < symbolInfo.minQty) {
+                  console.log(`⚠️ ${pair}: Quantity ${quantity} below minimum ${symbolInfo.minQty}`);
                   quantity = symbolInfo.minQty;
-                  console.log(`⚠️ ${pair}: Quantity adjusted to minimum: ${quantity}`);
+                  roundedQty = quantity;
+                  console.log(`✅ ${pair}: Quantity adjusted to minimum: ${quantity}`);
                 }
                 
-                // Round quantity to proper precision
-                quantity = Math.ceil(quantity / symbolInfo.stepSize) * symbolInfo.stepSize;
+                // Round quantity to proper precision using stepSize
+                const steppedQty = Math.ceil(quantity / symbolInfo.stepSize) * symbolInfo.stepSize;
+                if (steppedQty !== quantity) {
+                  console.log(`📏 ${pair}: Rounding quantity from ${quantity} to ${steppedQty} (stepSize: ${symbolInfo.stepSize})`);
+                  quantity = steppedQty;
+                  roundedQty = quantity;
+                }
+                
+                // Final validation
+                const finalValue = quantity * price;
+                console.log(`✅ ${pair}: Final quantity: ${quantity}, Final value: $${finalValue.toFixed(2)}, Meets minimum: ${finalValue >= minNotionalTarget ? 'YES' : 'NO'}`);
               }
 
               let orderResult: { success: boolean; data?: unknown; error?: string } = {
@@ -1796,10 +1835,10 @@ router.post('/', async (_req, res) => {
               });
 
               console.log(
-                `✅ Auto signal EXECUTED: ${pair} ${signal.action} for strategy ${config.name} | Signal confidence: ${(signal.confidence * 100).toFixed(1)}%`
+                `✅ ${pair}: 🚀 AUTO SIGNAL EXECUTED - Action: ${signal.action}, Confidence: ${(signal.confidence * 100).toFixed(1)}%, TradeId: ${tradeId}`
               );
             } else {
-              console.log(`❌ ${pair}: Trade EXECUTION FAILED - orderSuccess: ${orderSuccess}, orderId: ${orderId || 'missing'}, error: ${executionError || 'unknown'}`);
+              console.log(`❌ ${pair}: 💔 TRADE EXECUTION FAILED - OrderSuccess: ${orderSuccess}, OrderId: ${orderId || 'missing'}, Error: ${executionError || 'unknown'}`);
               const webhookLogId = crypto.randomUUID();
               await pool.query(
                 `INSERT INTO webhook_logs (id, user_id, strategy_id, webhook_secret, request_body, signal_data, decision, payload, status, error_message, created_at)
@@ -1825,7 +1864,7 @@ router.post('/', async (_req, res) => {
               });
             }
           } else {
-            console.log(`❌ ${pair}: Signal FILTERED - shouldExecute: false, skipReason: ${skipReason}`);
+            console.log(`❌ ${pair}: 🚫 SIGNAL FILTERED - Confidence: ${(signal.confidence * 100).toFixed(1)}%, Reason: ${skipReason}`);
             if (signal.action === 'buy' || signal.action === 'sell') {
               const webhookLogId = crypto.randomUUID();
               await pool.query(
@@ -1861,8 +1900,18 @@ router.post('/', async (_req, res) => {
     // Calculate summary
     const executedCount = results.filter((r) => r.executed).length;
     const totalSignals = results.filter((r) => r.signal !== null).length;
+    const avgConfidence = results
+      .filter((r) => r.signal !== null && r.signal.confidence)
+      .reduce((sum, r) => sum + (r.signal?.confidence || 0), 0) / (totalSignals || 1);
 
-    console.log(`📊 Auto-signal Summary: ${executedCount} executed, ${totalSignals} signals generated`);
+    console.log(`\n📊 ==========================================`);
+    console.log(`📊 AUTO-SIGNAL GENERATION COMPLETE`);
+    console.log(`📊 ==========================================`);
+    console.log(`📊 Total Signals Generated: ${totalSignals}`);
+    console.log(`📊 Executed: ${executedCount} (${((executedCount / (totalSignals || 1)) * 100).toFixed(1)}%)`);
+    console.log(`📊 Filtered/Failed: ${totalSignals - executedCount}`);
+    console.log(`📊 Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
+    console.log(`📊 ==========================================\n`);
 
     return res.json({
       processed: strategies.length,
