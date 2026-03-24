@@ -1052,7 +1052,7 @@ router.post('/', async (_req, res) => {
             if (signal.action === 'sell' && config.product === 'futures') {
               const positionsResult = await pool.query(
                 `SELECT * FROM positions 
-                 WHERE user_id = $1 AND exchange = $2 AND environment = $3 AND (product OR 'futures') = 'futures' AND symbol = $4 AND is_open = true`,
+                 WHERE user_id = $1 AND exchange = $2 AND environment = $3 AND COALESCE(product, 'futures') = 'futures' AND symbol = $4 AND is_open = true`,
                 [config.user_id, config.exchange, config.environment, pair]
               );
               const openPositions = positionsResult.rows;
@@ -1081,7 +1081,7 @@ router.post('/', async (_req, res) => {
             if (signal.action === 'sell' && config.product === 'spot' && profitOnlySellEnabled) {
               const positionsResult = await pool.query(
                 `SELECT * FROM positions 
-                 WHERE user_id = $1 AND exchange = $2 AND environment = $3 AND (product OR 'spot') = 'spot' AND symbol = $4 AND is_open = true AND side = 'long'`,
+                 WHERE user_id = $1 AND exchange = $2 AND environment = $3 AND COALESCE(product, 'spot') = 'spot' AND symbol = $4 AND is_open = true AND side = 'long'`,
                 [config.user_id, config.exchange, config.environment, pair]
               );
               const openLongPositions = positionsResult.rows;
