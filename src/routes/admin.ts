@@ -61,27 +61,27 @@ router.get('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) =>
         p.referrer_id,
         p.created_at as profile_created_at,
         p.updated_at as profile_updated_at,
-        CASE 
-          WHEN ur.user_id IS NOT NULL THEN true 
-          ELSE false 
-        END as is_admin,
-        CASE 
-          WHEN br.user_id IS NOT NULL THEN true 
-          ELSE false 
-        END as is_banned,
-        COUNT(DISTINCT t.id) as total_trades,
-        COALESCE(SUM(t.realized_pnl), 0) as total_pnl,
-        COUNT(DISTINCT ps.id) as total_positions,
-        COUNT(DISTINCT ts.id) as total_strategies
+        COALESCE(ur.user_id IS NOT NULL, false) as is_admin,
+        COALESCE(br.user_id IS NOT NULL, false) as is_banned,
+        COALESCE(stats.total_trades, 0) as total_trades,
+        COALESCE(stats.total_pnl, 0) as total_pnl,
+        COALESCE(stats.total_positions, 0) as total_positions,
+        COALESCE(stats.total_strategies, 0) as total_strategies
       FROM app_users u
       LEFT JOIN profiles p ON u.id = p.user_id
       LEFT JOIN user_roles ur ON u.id = ur.user_id AND ur.role = 'admin'
       LEFT JOIN banned_users br ON u.id = br.user_id AND br.is_active = true
-      LEFT JOIN trades t ON u.id = t.user_id
-      LEFT JOIN positions ps ON u.id = ps.user_id AND ps.is_open = true
-      LEFT JOIN trading_strategies ts ON u.id = ts.user_id
-      GROUP BY u.id, p.display_name, p.referral_code, p.referrer_id, 
-               p.created_at, p.updated_at, ur.user_id, br.user_id
+      LEFT JOIN LATERAL (
+        SELECT 
+          COUNT(DISTINCT t.id) as total_trades,
+          COALESCE(SUM(t.realized_pnl), 0) as total_pnl,
+          COUNT(DISTINCT ps.id) as total_positions,
+          COUNT(DISTINCT ts.id) as total_strategies
+        FROM trades t
+        LEFT JOIN positions ps ON t.user_id = ps.user_id AND ps.is_open = true AND t.user_id = u.id
+        LEFT JOIN trading_strategies ts ON t.user_id = ts.user_id AND t.user_id = u.id
+        WHERE t.user_id = u.id
+      ) stats ON true
       ORDER BY u.created_at DESC
     `);
 
