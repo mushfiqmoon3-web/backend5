@@ -11,14 +11,32 @@ export const pool = new Pool({
   database: process.env.DB_NAME || 'trading_bot',
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  max: 20, // Maximum number of clients in the pool
+  max: 50, // Maximum number of clients in the pool (increased from 20)
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
+  statement_timeout: 30000, // 30 seconds timeout for queries
 });
 
 // Test connection
 pool.on('connect', () => {
   logger.info('PostgreSQL client connected');
+});
+
+pool.on('acquire', (client) => {
+  const totalClients = pool.totalCount;
+  const idleClients = pool.idleCount;
+  const waitingClients = pool.waitingCount;
+  const activeClients = totalClients - idleClients;
+  
+  if (activeClients > 15 || waitingClients > 0) {
+    logger.warn('High database connection usage', {
+      total: totalClients,
+      idle: idleClients,
+      active: activeClients,
+      waiting: waitingClients,
+      max: pool.options.max,
+    });
+  }
 });
 
 pool.on('error', (err) => {
