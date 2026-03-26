@@ -678,8 +678,20 @@ router.post('/', async (req, res) => {
           strategy.id,
           strategy.webhook_secret || '',
           JSON.stringify(alert),
-          null,
-          null,
+          JSON.stringify({
+            action: alert.action,
+            symbol: alert.symbol,
+            price: alert.price || 0,
+            quantity: alert.quantity || 0,
+            leverage: alert.leverage || strategy.default_leverage,
+            source: 'tradingview_webhook',
+            confidence: null
+          }),
+          JSON.stringify({
+            execute: false,
+            reason: 'Outside trading session',
+            source: 'tradingview_webhook'
+          }),
           'rejected',
           'Outside trading session',
           new Date().toISOString()
@@ -709,8 +721,17 @@ router.post('/', async (req, res) => {
             strategy.id,
             strategy.webhook_secret || '',
             JSON.stringify(alert),
-            null,
-            null,
+            JSON.stringify({
+              action: alert.action,
+              symbol: alert.symbol,
+              source: 'tradingview_webhook',
+              confidence: null
+            }),
+            JSON.stringify({
+              execute: false,
+              reason: 'Max trades per day reached',
+              source: 'tradingview_webhook'
+            }),
             'rejected',
             'Max trades per day reached',
             new Date().toISOString()
@@ -738,8 +759,17 @@ router.post('/', async (req, res) => {
             strategy.id,
             strategy.webhook_secret || '',
             JSON.stringify(alert),
-            null,
-            null,
+            JSON.stringify({
+              action: alert.action,
+              symbol: alert.symbol,
+              source: 'tradingview_webhook',
+              confidence: null
+            }),
+            JSON.stringify({
+              execute: false,
+              reason: 'Max daily loss reached',
+              source: 'tradingview_webhook'
+            }),
             'rejected',
             'Max daily loss reached',
             new Date().toISOString()
@@ -774,8 +804,17 @@ router.post('/', async (req, res) => {
               strategy.id,
               strategy.webhook_secret || '',
               JSON.stringify(alert),
-              null,
-              null,
+              JSON.stringify({
+                action: alert.action,
+                symbol: alert.symbol,
+                source: 'tradingview_webhook',
+                confidence: null
+              }),
+              JSON.stringify({
+                execute: false,
+                reason: 'Max consecutive losses reached',
+                source: 'tradingview_webhook'
+              }),
               'rejected',
               'Max consecutive losses reached',
               new Date().toISOString()
@@ -803,8 +842,18 @@ router.post('/', async (req, res) => {
                 strategy.id,
                 strategy.webhook_secret || '',
                 JSON.stringify(alert),
-                null,
-                null,
+                JSON.stringify({
+                  action: alert.action,
+                  symbol: alert.symbol,
+                  price: alert.price || 0,
+                  source: 'tradingview_webhook',
+                  confidence: null
+                }),
+                JSON.stringify({
+                  execute: false,
+                  reason: 'Spread too high',
+                  source: 'tradingview_webhook'
+                }),
                 'rejected',
                 'Spread too high',
                 new Date().toISOString()
@@ -822,8 +871,18 @@ router.post('/', async (req, res) => {
                 strategy.id,
                 strategy.webhook_secret || '',
                 JSON.stringify(alert),
-                null,
-                null,
+                JSON.stringify({
+                  action: alert.action,
+                  symbol: alert.symbol,
+                  price: alert.price || 0,
+                  source: 'tradingview_webhook',
+                  confidence: null
+                }),
+                JSON.stringify({
+                  execute: false,
+                  reason: 'Slippage too high',
+                  source: 'tradingview_webhook'
+                }),
                 'rejected',
                 'Slippage too high',
                 new Date().toISOString()
@@ -942,8 +1001,22 @@ router.post('/', async (req, res) => {
           strategy.id,
           strategy.webhook_secret || '',
           JSON.stringify(alert),
-          null,
-          null,
+          JSON.stringify({
+            action: alert.action,
+            symbol: alert.symbol,
+            price: alert.price || 0,
+            quantity: alert.quantity || 0,
+            leverage: alert.leverage || strategy.default_leverage,
+            source: 'tradingview_webhook',
+            confidence: null
+          }),
+          JSON.stringify({
+            execute: true,
+            reason: 'Executed successfully',
+            source: 'tradingview_webhook',
+            trade_id: tradeId,
+            order_id: execResult.orderId
+          }),
           'executed',
           null,
           new Date().toISOString()
@@ -968,8 +1041,19 @@ router.post('/', async (req, res) => {
           strategy.id,
           strategy.webhook_secret || '',
           JSON.stringify(alert),
-          null,
-          null,
+          JSON.stringify({
+            action: alert.action,
+            symbol: alert.symbol,
+            price: alert.price || 0,
+            quantity: alert.quantity || 0,
+            source: 'tradingview_webhook',
+            confidence: null
+          }),
+          JSON.stringify({
+            execute: false,
+            reason: execResult.error || 'Unknown error',
+            source: 'tradingview_webhook'
+          }),
           'failed',
           execResult.error || 'Unknown error',
           new Date().toISOString()
