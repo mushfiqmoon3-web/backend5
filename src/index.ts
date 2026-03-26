@@ -19,7 +19,7 @@ app.set('trust proxy', true);
 
 // CORS configuration - MUST be first, before any other middleware
 app.use(cors({
-  origin: true, // Accept all origins when behind Cloudflare tunnel
+  origin: '*', // Accept all origins (safe behind Cloudflare tunnel)
   credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept'],
