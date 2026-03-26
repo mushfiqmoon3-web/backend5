@@ -17,13 +17,7 @@ const app = express();
 // Trust proxy for Cloudflare tunnel and reverse proxies
 app.set('trust proxy', true);
 
-// Security headers
-setupSecurityHeaders(app);
-
-// Compression middleware
-app.use(compression());
-
-// CORS configuration - Allow both frontend and tunnel URLs
+// CORS configuration - MUST be first, before any other middleware
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -44,8 +38,24 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin'],
+  exposedHeaders: ['Access-Control-Allow-Origin', 'Access-Control-Allow-Credentials']
 }));
+
+// Explicit OPTIONS handler for CORS preflight requests - MUST come early
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.get('origin') || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Origin');
+  res.status(204).send();
+});
+
+// Security headers
+setupSecurityHeaders(app);
+
+// Compression middleware
+app.use(compression());
 
 // Body parsing with increased limit for file uploads
 app.use(express.json({ limit: process.env.MAX_FILE_SIZE || '5mb' }));
