@@ -19,34 +19,18 @@ app.set('trust proxy', true);
 
 // CORS configuration - MUST be first, before any other middleware
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'https://bybitron.com',
-      'http://localhost:5173',
-      'http://localhost:3000'
-    ];
-    
-    // Check if origin matches any allowed origin or ends with trycloudflare.com
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('trycloudflare.com')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: false, // Set to false to match frontend's credentials: "omit"
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin'],
+  origin: true, // Accept all origins when behind Cloudflare tunnel
+  credentials: false,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept'],
   exposedHeaders: ['Access-Control-Allow-Origin']
 }));
 
-// Explicit OPTIONS handler for CORS preflight requests - MUST come early
+// Explicit OPTIONS handler for all preflight requests - MUST respond with 204
 app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.get('origin') || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Origin');
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Origin, Accept');
   res.status(204).send();
 });
 
@@ -62,15 +46,6 @@ app.use(express.urlencoded({ extended: true, limit: process.env.MAX_FILE_SIZE ||
 
 // Rate limiting
 app.use(generalRateLimiter);
-
-// Explicit OPTIONS handler for CORS preflight requests
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.get('origin') || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.status(204).send();
-});
 
 // Request logging middleware
 app.use((req, res, next) => {
