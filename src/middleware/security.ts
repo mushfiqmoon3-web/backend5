@@ -43,7 +43,11 @@ export const generalRateLimiter = rateLimit({
                       userAgent.startsWith('node/');
     return isHealthCheck || isCronJob;
   },
-  // Note: trustProxy is set on Express app, not here
+  // Configure for Cloudflare tunnel - use X-Forwarded-For header
+  keyGenerator: (req) => {
+    const forwarded = req.get('x-forwarded-for') || '';
+    return forwarded.split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  },
 });
 
 // Stricter rate limiter for auth endpoints
