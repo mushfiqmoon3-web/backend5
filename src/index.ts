@@ -23,14 +23,29 @@ setupSecurityHeaders(app);
 // Compression middleware
 app.use(compression());
 
-// CORS configuration
-const corsOrigin = process.env.CORS_ORIGIN || '*';
-app.use(
-  cors({
-    origin: corsOrigin === '*' ? true : corsOrigin.split(','),
-    credentials: true,
-  })
-);
+// CORS configuration - Allow both frontend and tunnel URLs
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'https://bybitron.com',
+      'http://localhost:5173',
+      'http://localhost:3000'
+    ];
+    
+    // Check if origin matches any allowed origin or ends with trycloudflare.com
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('trycloudflare.com')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 
 // Body parsing with increased limit for file uploads
 app.use(express.json({ limit: process.env.MAX_FILE_SIZE || '5mb' }));
@@ -38,6 +53,15 @@ app.use(express.urlencoded({ extended: true, limit: process.env.MAX_FILE_SIZE ||
 
 // Rate limiting
 app.use(generalRateLimiter);
+
+// Explicit OPTIONS handler for CORS preflight requests
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.get('origin') || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.status(204).send();
+});
 
 // Request logging middleware
 app.use((req, res, next) => {
