@@ -12,7 +12,8 @@ import { dbRouter } from './db.js';
 import { rpcRouter } from './rpc.js';
 import { uploadsRouter } from './uploads.js';
 import { dcaRouter } from './dca.js';
-import { signalsRouter } from './signals.js'; // ← ADD THIS
+import { signalsRouter } from './signals.js';
+import { adminRouter } from './admin.js';
 
 export function registerRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -28,5 +29,6 @@ export function registerRoutes(app: Express) {
   app.use('/api/auto-signal-generator', autoSignalGeneratorRouter);
   app.use('/api/position-monitor', positionMonitorRouter);
   app.use('/api/dca', dcaRouter);
-  app.use('/api/signals', signalsRouter); // ← ADD THIS
+  app.use('/api/signals', signalsRouter);
+  app.use('/api/admin', adminRouter);
 }
