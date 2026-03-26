@@ -194,6 +194,26 @@ const server = app.listen(port, () => {
   startCronJobs(port);
 });
 
+// Configure keep-alive timeout for Cloudflare tunnel stability
+server.keepAliveTimeout = 65 * 1000; // 65 seconds (slightly longer than default)
+server.headersTimeout = 66 * 1000; // 66 seconds (slightly longer than keep-alive)
+
+// Handle socket timeouts to prevent connection drops
+server.on('connection', (socket) => {
+  // Set a reasonable timeout for idle connections
+  socket.setTimeout(30000); // 30 seconds
+  
+  socket.on('timeout', () => {
+    // Gracefully handle timeout
+    socket.end();
+  });
+  
+  socket.on('error', (err) => {
+    // Log socket errors but don't crash
+    logger.debug('Socket error', { error: err.message });
+  });
+});
+
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     logger.error(`Port ${port} is already in use`, { port, error: err.message });
