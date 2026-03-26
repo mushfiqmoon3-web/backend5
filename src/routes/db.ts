@@ -56,6 +56,7 @@ router.post('/', checkPublicQuery, async (req: Request | AuthenticatedRequest, r
 });
 
 async function handleDbRequest(req: Request, res: Response) {
+  const client = await pool.connect(); // Get a client from the pool
   try {
     const { table, action, filters, order, limit, data, count, head, returning, onConflict } = req.body as {
       table: string;
@@ -88,7 +89,7 @@ async function handleDbRequest(req: Request, res: Response) {
         query += ` LIMIT ${limit}`;
       }
 
-      const result = await pool.query(query, queryParams);
+      const result = await client.query(query, queryParams);
       const totalCount = count ? result.rows.length : undefined;
       const returnData = head ? [] : result.rows;
       
@@ -108,7 +109,7 @@ async function handleDbRequest(req: Request, res: Response) {
         const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
         
         const insertQuery = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING *`;
-        const result = await pool.query(insertQuery, values);
+        const result = await client.query(insertQuery, values);
         inserted.push(result.rows[0]);
       }
       
@@ -140,7 +141,7 @@ async function handleDbRequest(req: Request, res: Response) {
           RETURNING *
         `;
         
-        const result = await pool.query(upsertQuery, values);
+        const result = await client.query(upsertQuery, values);
         upserted.push(result.rows[0]);
       }
       
@@ -157,7 +158,7 @@ async function handleDbRequest(req: Request, res: Response) {
       const updateQuery = `UPDATE ${table} SET ${setClause}, updated_at = CURRENT_TIMESTAMP ${where} RETURNING *`;
       const queryParams = [...values, ...params];
       
-      const result = await pool.query(updateQuery, queryParams);
+      const result = await client.query(updateQuery, queryParams);
       
       return res.json({ data: returning ? result.rows : null });
     }
@@ -166,15 +167,17 @@ async function handleDbRequest(req: Request, res: Response) {
       const { where, params } = buildWhereClause(filters, 1);
       
       const deleteQuery = `DELETE FROM ${table} ${where} RETURNING *`;
-      const result = await pool.query(deleteQuery, params);
+      const result = await client.query(deleteQuery, params);
       
       return res.json({ data: returning ? result.rows : null });
     }
 
     return res.status(400).json({ error: 'Unsupported action' });
   } catch (error) {
-   console.error('Database router error:', error);
-   return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    console.error('Database router error:', error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  } finally {
+    client.release(); // ALWAYS release the client back to the pool
   }
 }
 
